@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	disconnectTimer = 5 * time.Second
+	DisconnectTimer = 5 * time.Second
 )
 
 type GameState struct {
@@ -24,7 +24,11 @@ func New() GameState {
 	return GameState{}
 }
 
-func (g *GameState) HandleClient(conn *net.UDPConn, addr *net.UDPAddr, data []byte) {
+type UDPConn interface {
+	WriteToUDP(b []byte, addr *net.UDPAddr) (int, error)
+}
+
+func (g *GameState) HandleClient(conn UDPConn, addr *net.UDPAddr, data []byte) {
 	gamePlayer, err := player.DeserializePlayer(data)
 	if err != nil {
 		log.Println("Failed to decode player data:", err)
@@ -46,7 +50,7 @@ func (g *GameState) HandleClient(conn *net.UDPConn, addr *net.UDPAddr, data []by
 	fmt.Printf("Player %d updated: X=%.2f, Y=%.2f (from %s)\n", gamePlayer.ID, gamePlayer.X, gamePlayer.Y, addr)
 }
 
-func (g *GameState) Broadcast(conn *net.UDPConn) {
+func (g *GameState) Broadcast(conn UDPConn) {
 	g.Players.Range(func(key, value interface{}) bool {
 		p := value.(player.Player)
 
@@ -71,12 +75,12 @@ func (g *GameState) Broadcast(conn *net.UDPConn) {
 }
 
 func (g *GameState) MonitorDisconnections() {
-	ticker := time.NewTicker(disconnectTimer)
+	ticker := time.NewTicker(DisconnectTimer)
 	for range ticker.C {
 		now := time.Now().UnixMilli()
 		g.Players.Range(func(key, value interface{}) bool {
 			gamePlayer := value.(player.Player)
-			if now-gamePlayer.Timestamp > disconnectTimer.Milliseconds() {
+			if now-gamePlayer.Timestamp > DisconnectTimer.Milliseconds() {
 				fmt.Printf("[Server] Player %d disconnected.\n", gamePlayer.ID)
 				g.Players.Delete(key)
 				g.SequenceNumbers.Delete(key)
