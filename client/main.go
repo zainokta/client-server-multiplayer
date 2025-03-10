@@ -24,6 +24,25 @@ func sendUDPPlayerUpdate(cfg config.Config) {
 
 	p := player.New()
 
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				log.Println("Error receiving: ", err)
+				continue
+			}
+
+			updatedPlayer, err := player.DeserializePlayer(buf[:n])
+			if err != nil {
+				log.Println("Failed to decode: ", err)
+				continue
+			}
+
+			fmt.Printf("[Client] Player %d: X=%d, Y=%d\n", updatedPlayer.ID, updatedPlayer.X, updatedPlayer.Y)
+		}
+	}()
+
 	for i := 0; i < 10; i++ {
 		p.X = rand.Int32() * 100
 		p.Y = rand.Int32() * 100

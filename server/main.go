@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/zainokta/client-server-multiplayer/server/config"
-	"github.com/zainokta/client-server-multiplayer/server/player"
+	"github.com/zainokta/client-server-multiplayer/server/game"
 )
 
 func startUDPServer(cfg config.Config) {
@@ -21,6 +22,16 @@ func startUDPServer(cfg config.Config) {
 
 	fmt.Printf("UDP Server listening on port %d\n", cfg.Port)
 
+	gameState := game.New()
+
+	ticker := time.NewTicker(time.Second / time.Duration(cfg.GameTickRate))
+
+	go func() {
+		for range ticker.C {
+			gameState.Broadcast(conn)
+		}
+	}()
+
 	for {
 		buf := make([]byte, 1024)
 		n, addr, err := conn.ReadFromUDP(buf)
@@ -29,13 +40,7 @@ func startUDPServer(cfg config.Config) {
 			continue
 		}
 
-		player, err := player.DeserializePlayer(buf[:n])
-		if err != nil {
-			log.Println("Error decoding:", err)
-			continue
-		}
-
-		fmt.Printf("Received from %s - Player %d: X=%d, Y=%d\n", addr, player.ID, player.X, player.Y)
+		go gameState.HandleClient(conn, addr, buf[:n])
 	}
 }
 

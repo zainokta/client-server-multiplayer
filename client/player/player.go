@@ -3,6 +3,7 @@ package player
 import (
 	"bytes"
 	"encoding/binary"
+	"math/rand/v2"
 )
 
 type Player struct {
@@ -11,12 +12,9 @@ type Player struct {
 	Y  int32
 }
 
-var playerId int32 = 0
-
 func New() Player {
-	playerId++
 	return Player{
-		ID: playerId,
+		ID: int32(rand.IntN(8)),
 	}
 }
 
@@ -27,4 +25,11 @@ func SerializePlayer(player Player) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func DeserializePlayer(data []byte) (Player, error) {
+	var player Player
+	buf := bytes.NewReader(data)
+	err := binary.Read(buf, binary.LittleEndian, &player)
+	return player, err
 }

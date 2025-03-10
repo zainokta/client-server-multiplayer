@@ -11,15 +11,6 @@ type Player struct {
 	Y  int32
 }
 
-var playerId int32 = 0
-
-func New() Player {
-	playerId++
-	return Player{
-		ID: playerId,
-	}
-}
-
 func SerializePlayer(player Player) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, player)
