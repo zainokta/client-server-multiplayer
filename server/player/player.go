@@ -6,9 +6,11 @@ import (
 )
 
 type Player struct {
-	ID int32
-	X  int32
-	Y  int32
+	ID        int32
+	X         float32
+	Y         float32
+	Timestamp int64
+	Sequence  uint32
 }
 
 func SerializePlayer(player Player) ([]byte, error) {
@@ -21,8 +23,8 @@ func SerializePlayer(player Player) ([]byte, error) {
 }
 
 func DeserializePlayer(data []byte) (Player, error) {
-	var player Player
+	var gamePlayer Player
 	buf := bytes.NewReader(data)
-	err := binary.Read(buf, binary.LittleEndian, &player)
-	return player, err
+	err := binary.Read(buf, binary.LittleEndian, &gamePlayer)
+	return gamePlayer, err
 }

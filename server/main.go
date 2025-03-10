@@ -24,6 +24,8 @@ func startUDPServer(cfg config.Config) {
 
 	gameState := game.New()
 
+	go gameState.MonitorDisconnections()
+
 	ticker := time.NewTicker(time.Second / time.Duration(cfg.GameTickRate))
 
 	go func() {
