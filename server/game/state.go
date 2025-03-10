@@ -3,7 +3,6 @@ package game
 import (
 	"fmt"
 	"log"
-	"math"
 	"net"
 	"sync"
 	"time"
@@ -12,7 +11,6 @@ import (
 )
 
 const (
-	gameMaxSpeed    = 10.0
 	disconnectTimer = 5 * time.Second
 )
 
@@ -41,8 +39,6 @@ func (g *GameState) HandleClient(conn *net.UDPConn, addr *net.UDPAddr, data []by
 	}
 
 	g.SequenceNumbers.Store(gamePlayer.ID, gamePlayer.Sequence)
-
-	gamePlayer = g.reconcilePlayerPosition(gamePlayer)
 
 	g.Players.Store(gamePlayer.ID, gamePlayer)
 	g.Clients.Store(gamePlayer.ID, addr)
@@ -89,23 +85,4 @@ func (g *GameState) MonitorDisconnections() {
 			return true
 		})
 	}
-}
-
-func (g *GameState) reconcilePlayerPosition(gamePlayer player.Player) player.Player {
-	lastVal, exists := g.Players.Load(gamePlayer.ID)
-
-	if exists {
-		lastPlayer := lastVal.(player.Player)
-		timeDiff := float32(gamePlayer.Timestamp-lastPlayer.Timestamp) / 1000.0
-		maxAllowedMove := gameMaxSpeed * timeDiff
-
-		if math.Abs(float64(gamePlayer.X-lastPlayer.X)) > float64(maxAllowedMove) || math.Abs(float64(gamePlayer.Y-lastPlayer.Y)) > float64(maxAllowedMove) {
-			fmt.Printf("[Server] Player %d moved too fast! Correcting position.\n", gamePlayer.ID)
-			gamePlayer.X = lastPlayer.X
-			gamePlayer.Y = lastPlayer.Y
-		}
-	}
-
-	g.Players.Store(gamePlayer.ID, gamePlayer)
-	return gamePlayer
 }

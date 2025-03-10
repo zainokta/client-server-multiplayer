@@ -3,7 +3,6 @@ package player
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"log"
 	"math/rand/v2"
 	"net"
@@ -12,10 +11,10 @@ import (
 )
 
 const (
-	InterpolationAlpha float32 = 0.1
+	SmoothingFactor = 0.2
+	MaxRewindTime   = 300 * time.Millisecond
+	MinTimeDiff     = 0.001
 )
-
-var sequenceNumber uint32 = 0
 
 type Player struct {
 	ID        int32
@@ -25,11 +24,13 @@ type Player struct {
 	Sequence  uint32
 }
 
-var LastPositions sync.Map
+var Players sync.Map
 
-func New() Player {
+func New(x float32, y float32) Player {
 	return Player{
 		ID: int32(rand.IntN(8)),
+		X:  x,
+		Y:  y,
 	}
 }
 
@@ -49,21 +50,29 @@ func deserializePlayer(data []byte) (Player, error) {
 	return player, err
 }
 
-func predictPosition(last Player, deltaTime float32) Player {
-	velocityX := (last.X - last.X) / deltaTime
-	velocityY := (last.Y - last.Y) / deltaTime
-	last.X += velocityX * deltaTime
-	last.Y += velocityY * deltaTime
-	return last
+func interpolatePlayer(last, current Player) Player {
+	current.X = last.X + (current.X-last.X)*SmoothingFactor
+	current.Y = last.Y + (current.Y-last.Y)*SmoothingFactor
+	return current
 }
 
-func interpolatePosition(last, new Player, alpha float32) Player {
-	return Player{
-		ID:        last.ID,
-		X:         last.X + (new.X-last.X)*alpha,
-		Y:         last.Y + (new.Y-last.Y)*alpha,
-		Timestamp: new.Timestamp,
-		Sequence:  new.Sequence,
+func reconcilePlayerPosition(gamePlayer Player) {
+	lastVal, exists := Players.Load(gamePlayer.ID)
+	if exists {
+		clientPlayer := lastVal.(Player)
+		if gamePlayer.Sequence <= clientPlayer.Sequence {
+			return
+		}
+
+		if time.Now().UnixMilli()-gamePlayer.Timestamp > int64(MaxRewindTime) {
+			clientPlayer.X = gamePlayer.X
+			clientPlayer.Y = gamePlayer.Y
+		} else {
+			clientPlayer = interpolatePlayer(clientPlayer, gamePlayer)
+		}
+
+		clientPlayer.Sequence = gamePlayer.Sequence
+		Players.Store(clientPlayer.ID, clientPlayer)
 	}
 }
 
@@ -76,33 +85,34 @@ func receiveUpdate(buf []byte, n int) error {
 		return err
 	}
 
-	val, exists := LastPositions.Load(updatedPlayer.ID)
-	if exists {
-		lastPlayerPosition := val.(Player)
-
-		// calculate in seconds
-		deltaTime := float32(now-lastPlayerPosition.Timestamp) / 1000.0
-
-		if deltaTime > 1.0 {
-			predicted := predictPosition(lastPlayerPosition, deltaTime)
-			fmt.Printf("[Client] Player %d Predicted: X=%.2f, Y=%.2f (delta time=%.2fs)\n",
-				predicted.ID, predicted.X, predicted.Y, deltaTime)
-		}
-
-		interpolated := interpolatePosition(lastPlayerPosition, updatedPlayer, InterpolationAlpha)
-
-		fmt.Printf("[Client] Player %d Interpolated: X=%.2f, Y=%.2f\n", interpolated.ID, interpolated.X, interpolated.Y)
-	} else {
-		fmt.Printf("[Client] Player %d First Update: X=%.2f, Y=%.2f\n", updatedPlayer.ID, updatedPlayer.X, updatedPlayer.Y)
-	}
+	reconcilePlayerPosition(updatedPlayer)
 
 	updatedPlayer.Timestamp = now
-	LastPositions.Store(updatedPlayer.ID, updatedPlayer)
+	Players.Store(updatedPlayer.ID, updatedPlayer)
 
 	return nil
 }
 
-func getPlayerUpdate(conn *net.UDPConn) {
+func PredictPosition(p Player) Player {
+	lastVal, exists := Players.Load(p.ID)
+	if exists {
+		lastPlayer := lastVal.(Player)
+		timeDiff := float32(p.Timestamp-lastPlayer.Timestamp) / 1000.0
+		if timeDiff < MinTimeDiff {
+			return lastPlayer
+		}
+
+		velX := (p.X - lastPlayer.X) / timeDiff
+		velY := (p.Y - lastPlayer.Y) / timeDiff
+
+		p.X += velX * timeDiff
+		p.Y += velY * timeDiff
+	}
+
+	return p
+}
+
+func GetPlayerUpdate(conn *net.UDPConn) {
 	buf := make([]byte, 1024)
 	for {
 		n, err := conn.Read(buf)
@@ -115,29 +125,14 @@ func getPlayerUpdate(conn *net.UDPConn) {
 	}
 }
 
-func SendPlayerUpdate(conn *net.UDPConn) {
-	gamePlayer := New()
+func SendPlayerUpdate(conn *net.UDPConn, gamePlayer Player) {
+	data, err := serializePlayer(gamePlayer)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	go getPlayerUpdate(conn)
-
-	for i := 0; i < 10; i++ {
-		sequenceNumber++
-		gamePlayer.X = rand.Float32() * 100
-		gamePlayer.Y = rand.Float32() * 100
-		gamePlayer.Timestamp = time.Now().UnixMilli()
-		gamePlayer.Sequence = sequenceNumber
-
-		data, err := serializePlayer(gamePlayer)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		_, err = conn.Write(data)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Printf("Sent Player %d: X=%.2f, Y=%.2f\n", gamePlayer.ID, gamePlayer.X, gamePlayer.Y)
-		time.Sleep(time.Second)
+	_, err = conn.Write(data)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
